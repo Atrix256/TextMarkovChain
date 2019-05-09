@@ -20,7 +20,7 @@ typedef std::vector<WordProbability> TWordProbabilities;
 std::unordered_map<std::string, TWordCounts> g_wordCounts;
 std::unordered_map<std::string, TWordProbabilities> g_wordProbabilities;
 
-bool IsGoodChar(char c)
+bool IsAlphaNumeric(char c)
 {
     if (c >= 'a' && c <= 'z')
         return true;
@@ -37,19 +37,60 @@ bool IsGoodChar(char c)
     return false;
 }
 
+bool IsPunctuation(char c)
+{
+    if (c == '.')
+        return true;
+
+    if (c == ',')
+        return true;
+
+    if (c == ';')
+        return true;
+
+    //if (c == '\"')
+    //    return true;
+
+    if (c == ':')
+        return true;
+
+    if (c == '-')
+        return true;
+
+    return false;
+}
+
 void GetWord(unsigned char* contents, size_t size, size_t& position, std::string& word)
 {
-    // skip bad characters to start
-    while (position < size && !IsGoodChar(contents[position]))
+    // skip ignored characters to start
+    while (position < size && !IsAlphaNumeric(contents[position]) && !IsPunctuation(contents[position]))
         position++;
-    size_t startPosition = position;
+
+    // exit if there is no word
+    if (position >= size)
+    {
+        word = "";
+        return;
+    }
 
     // go until bad character, or end of data
-    while (position < size && IsGoodChar(contents[position]))
-        position++;
+    size_t startPosition = position;
+    if (IsPunctuation(contents[position]))
+    {
+        while (position < size && IsPunctuation(contents[position]))
+            position++;
+    }
+    else
+    {
+        while (position < size && IsAlphaNumeric(contents[position]))
+            position++;
+    }
 
     // copy the word into the string
     word = std::string(&contents[startPosition], &contents[position]);
+
+    // make lowercase for consistency
+    std::transform(word.begin(), word.end(), word.begin(), ::tolower);
 }
 
 bool ProcessFile(const char* fileName)
@@ -74,8 +115,11 @@ bool ProcessFile(const char* fileName)
     while (position < size)
     {
         GetWord(contents.data(), size, position, nextWord);
-        g_wordCounts[lastWord][nextWord]++;
-        lastWord = nextWord;
+        if (!nextWord.empty())
+        {
+            g_wordCounts[lastWord][nextWord]++;
+            lastWord = nextWord;
+        }
     }
 
     return true;
@@ -116,8 +160,12 @@ bool GenerateFile(const char* fileName, size_t wordCount)
     size_t lastWordIndex = dist(rng);
     auto it = g_wordProbabilities.begin();
     std::advance(it, lastWordIndex);
-    fprintf(file, "%s ", it->first.c_str());
+    std::string word = it->first;
+    word[0] = toupper(word[0]);
+    fprintf(file, "%s", word.c_str());
     std::string lastWord = it->first;
+
+    bool capitalizeFirstLetter = false;
 
     for (size_t wordIndex = 0; wordIndex < wordCount; ++wordIndex)
     {
@@ -131,8 +179,33 @@ bool GenerateFile(const char* fileName, size_t wordCount)
         while (nextWordIndex < probabilities.size() - 1 && probabilities[nextWordIndex].probability < nextWordProbability)
             ++nextWordIndex;
 
-        fprintf(file, "%s ", probabilities[nextWordIndex].word.c_str());
+        std::string nextWord = probabilities[nextWordIndex].word;
+
+        if (capitalizeFirstLetter)
+        {
+            nextWord[0] = toupper(nextWord[0]);
+            capitalizeFirstLetter = false;
+        }
+
+        if (nextWord == "." || nextWord == "," || nextWord == ";")
+            fprintf(file, "%s", nextWord.c_str());
+        else
+            fprintf(file, " %s", nextWord.c_str());
+
+        if (nextWord == ".")
+            capitalizeFirstLetter = true;
+
         lastWord = probabilities[nextWordIndex].word;
+    }
+
+    // show the ignored letters
+    fprintf(file, "\n\nIgnored Letters:\n");
+    for (int i = 1; i < 256; ++i)
+    {
+        if (IsAlphaNumeric(char(i)) || IsPunctuation(char(i)))
+            continue;
+
+        fprintf(file, "%c (%i)\n", char(i), i);
     }
 
     fclose(file);
@@ -143,8 +216,9 @@ int main(int argc, char** argv)
 {
     const char* inputFiles[] =
     {
-        "data/projbluenoise.txt"
-        //"data/psychreport.txt"
+        //"data/projbluenoise.txt",
+        //"data/psychreport.txt",
+        "data/lastquestion.txt"
     };
 
     // process input
@@ -181,7 +255,14 @@ TODO:
 * what about periods and commas and things
 * maybe also handle capitalization.
 
+* could remember which words were ever first (in a document? in a sentence?) and when choosing a starting word, only choose from those
+* could report which characters were ignored, to make sure nothing important was missed
 
 * could also try doing something like... "here are the last 5 characters. here are characters at -10, -15, -20, -25 strings"
+
+
+
+
+Note: all sorts of copies and ineficiencies. Runs fast enough for this usage case, and was fast to write, so good enough.
 
 */
