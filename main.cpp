@@ -216,9 +216,9 @@ int main(int argc, char** argv)
 {
     const char* inputFiles[] =
     {
-        //"data/projbluenoise.txt",
-        //"data/psychreport.txt",
-        "data/lastquestion.txt"
+        "data/projbluenoise.txt",
+        "data/psychreport.txt",
+        "data/lastquestion.txt",
     };
 
     // process input
@@ -260,7 +260,8 @@ TODO:
 
 * could also try doing something like... "here are the last 5 characters. here are characters at -10, -15, -20, -25 strings"
 
-
+* make it print out statistics about word probabilities (and counts!) to a file.
+ * chanel wants to know why "school psychologist" doesn't come up more.
 
 
 Note: all sorts of copies and ineficiencies. Runs fast enough for this usage case, and was fast to write, so good enough.
