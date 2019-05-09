@@ -2,12 +2,23 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
+#include <random>
+#include <algorithm>
 
 #define COUNTOF(X) (sizeof(X) / sizeof(X[0]))
 
 typedef std::unordered_map<std::string, size_t> TWordCounts;
 
+struct WordProbability
+{
+    std::string word;
+    float probability;
+};
+
+typedef std::vector<WordProbability> TWordProbabilities;
+
 std::unordered_map<std::string, TWordCounts> g_wordCounts;
+std::unordered_map<std::string, TWordProbabilities> g_wordProbabilities;
 
 bool IsGoodChar(char c)
 {
@@ -18,6 +29,9 @@ bool IsGoodChar(char c)
         return true;
 
     if (c >= '0' && c <= '9')
+        return true;
+
+    if (c == '\'')
         return true;
 
     return false;
@@ -67,9 +81,62 @@ bool ProcessFile(const char* fileName)
     return true;
 }
 
-bool GenerateFile(const char* outFileName, size_t wordLength)
+void MakeProbabilities()
 {
+    for (auto firstWord : g_wordCounts)
+    {
+        size_t sum = 0;
+        for (auto nextWord : firstWord.second)
+            sum += nextWord.second;
 
+        float probabilitySum = 0.0f;
+        for (auto nextWord : firstWord.second)
+        {
+            float probability = float(nextWord.second) / float(sum);
+            probabilitySum += probability;
+            g_wordProbabilities[firstWord.first].push_back(WordProbability{ nextWord.first, probabilitySum });
+        }
+    }
+}
+
+bool GenerateFile(const char* fileName, size_t wordCount)
+{
+    static std::random_device rd("dev/random");
+    static std::seed_seq fullSeed{ rd(), rd(), rd(), rd(), rd(), rd(), rd(), rd() };
+    static std::mt19937 rng(fullSeed);
+
+    FILE* file = nullptr;
+    fopen_s(&file, fileName, "w+t");
+    if (!file)
+        return false;
+
+    std::uniform_int_distribution<size_t> dist(0, g_wordProbabilities.size());
+    std::uniform_real_distribution<float> distFloat(0.0f, 1.0f);
+
+    size_t lastWordIndex = dist(rng);
+    auto it = g_wordProbabilities.begin();
+    std::advance(it, lastWordIndex);
+    fprintf(file, "%s ", it->first.c_str());
+    std::string lastWord = it->first;
+
+    for (size_t wordIndex = 0; wordIndex < wordCount; ++wordIndex)
+    {
+        TWordProbabilities probabilities = g_wordProbabilities[lastWord];
+        if (probabilities.size() == 0)  // edge case: the only time a word appears is at the end of the file!
+            break;
+
+        float nextWordProbability = distFloat(rng);
+
+        int nextWordIndex = 0;
+        while (nextWordIndex < probabilities.size() - 1 && probabilities[nextWordIndex].probability < nextWordProbability)
+            ++nextWordIndex;
+
+        fprintf(file, "%s ", probabilities[nextWordIndex].word.c_str());
+        lastWord = probabilities[nextWordIndex].word;
+    }
+
+    fclose(file);
+    return true;
 }
 
 int main(int argc, char** argv)
@@ -77,8 +144,10 @@ int main(int argc, char** argv)
     const char* inputFiles[] =
     {
         "data/projbluenoise.txt"
+        //"data/psychreport.txt"
     };
 
+    // process input
     for (size_t i = 0; i < COUNTOF(inputFiles); ++i)
     {
         printf("processing %s...\n", inputFiles[i]);
@@ -89,6 +158,11 @@ int main(int argc, char** argv)
         }
     }
 
+    // make probabilities
+    printf("Calculating probabilities...\n");
+    MakeProbabilities();
+
+    // make output
     if (!GenerateFile("out.txt", 1000))
     {
         printf("Could not generate output file!\n");
@@ -104,6 +178,10 @@ TODO:
 
 * Nth order!
 * more source texts (chanel's psych report. some poems?)
-* make it generate output
+* what about periods and commas and things
+* maybe also handle capitalization.
+
+
+* could also try doing something like... "here are the last 5 characters. here are characters at -10, -15, -20, -25 strings"
 
 */
