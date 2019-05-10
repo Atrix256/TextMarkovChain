@@ -143,6 +143,49 @@ void MakeProbabilities()
     }
 }
 
+bool GenerateStatsFile(const char* fileName)
+{
+    FILE* file = nullptr;
+    fopen_s(&file, fileName, "w+t");
+    if (!file)
+        return false;
+
+    // show the data we have
+    fprintf(file, "\n\nWord Counts:\n");
+    for (auto& wordCounts : g_wordCounts)
+    {
+        fprintf(file, "[+] %s\n", wordCounts.first.c_str());
+
+        for (auto& wordCount : wordCounts.second)
+            fprintf(file, "[++] %s - %zu\n", wordCount.first.c_str(), wordCount.second);
+    }
+
+    fprintf(file, "\n\nWord Probabilities:\n");
+    for (auto& wordCounts : g_wordProbabilities)
+    {
+        fprintf(file, "[-] %s\n", wordCounts.first.c_str());
+
+        float lastProbability = 0.0f;
+        for (auto& wordCount : wordCounts.second)
+        {
+            fprintf(file, "[--] %s - %i%%\n", wordCount.word.c_str(), int((wordCount.probability - lastProbability)*100.0f));
+            lastProbability = wordCount.probability;
+        }
+    }
+
+    // show the ignored letters
+    fprintf(file, "\n\nIgnored Letters:\n");
+    for (int i = 1; i < 256; ++i)
+    {
+        if (IsAlphaNumeric(char(i)) || IsPunctuation(char(i)))
+            continue;
+
+        fprintf(file, "%c (%i)\n", char(i), i);
+    }
+
+    return true;
+}
+
 bool GenerateFile(const char* fileName, size_t wordCount)
 {
     static std::random_device rd("dev/random");
@@ -187,7 +230,7 @@ bool GenerateFile(const char* fileName, size_t wordCount)
             capitalizeFirstLetter = false;
         }
 
-        if (nextWord == "." || nextWord == "," || nextWord == ";")
+        if (nextWord == "." || nextWord == "," || nextWord == ";" || nextWord == ":")
             fprintf(file, "%s", nextWord.c_str());
         else
             fprintf(file, " %s", nextWord.c_str());
@@ -198,16 +241,6 @@ bool GenerateFile(const char* fileName, size_t wordCount)
         lastWord = probabilities[nextWordIndex].word;
     }
 
-    // show the ignored letters
-    fprintf(file, "\n\nIgnored Letters:\n");
-    for (int i = 1; i < 256; ++i)
-    {
-        if (IsAlphaNumeric(char(i)) || IsPunctuation(char(i)))
-            continue;
-
-        fprintf(file, "%c (%i)\n", char(i), i);
-    }
-
     fclose(file);
     return true;
 }
@@ -216,9 +249,10 @@ int main(int argc, char** argv)
 {
     const char* inputFiles[] =
     {
-        "data/projbluenoise.txt",
-        "data/psychreport.txt",
+        //"data/projbluenoise.txt",
+        //"data/psychreport.txt",
         "data/lastquestion.txt",
+        "data/telltale.txt",
     };
 
     // process input
@@ -236,8 +270,15 @@ int main(int argc, char** argv)
     printf("Calculating probabilities...\n");
     MakeProbabilities();
 
+    // make statistics file
+    if (!GenerateStatsFile("out/stats.txt"))
+    {
+        printf("Could not generate stats file!\n");
+        return 1;
+    }
+
     // make output
-    if (!GenerateFile("out.txt", 1000))
+    if (!GenerateFile("out/generated.txt", 1000))
     {
         printf("Could not generate output file!\n");
         return 1;
@@ -250,20 +291,12 @@ int main(int argc, char** argv)
 
 TODO:
 
-* Nth order!
-* more source texts (chanel's psych report. some poems?)
-* what about periods and commas and things
-* maybe also handle capitalization.
+* Nth order! just make the key string be the appending of the last two words maybe?
+* then write blog post.
 
-* could remember which words were ever first (in a document? in a sentence?) and when choosing a starting word, only choose from those
-* could report which characters were ignored, to make sure nothing important was missed
+Next: try with images?
+ * maybe just have a "N observed states = M possible outputs" general markov chain. Maybe try it with more than images? letters? audio? i dunno
 
-* could also try doing something like... "here are the last 5 characters. here are characters at -10, -15, -20, -25 strings"
-
-* make it print out statistics about word probabilities (and counts!) to a file.
- * chanel wants to know why "school psychologist" doesn't come up more.
-
-
-Note: all sorts of copies and ineficiencies. Runs fast enough for this usage case, and was fast to write, so good enough.
+Note: all sorts of copies and ineficiencies in code. Runs fast enough for this usage case, and was fast to write, so good enough.
 
 */
