@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <random>
 #include <algorithm>
+#include <array>
 
 template <typename TObservedState, typename TNextState>
 class MarkovChain
@@ -19,9 +20,11 @@ public:
     }
 
     // learning stage
-    void LearnObservation(const TObservedState& observed, const TNextState& next)
+    void Observe(TObservedState& observed, const TNextState& next)
     {
-        m_counts[observed][next]++;
+        if (ShouldObserve(observed))
+            m_counts[observed][next]++;
+        PostObserve(observed, next);
     }
 
     void FinalizeLearning()
@@ -68,6 +71,10 @@ public:
         return probabilities[nextStateIndex].observed;
     }
 
+    // virtual interface
+    virtual bool ShouldObserve(const TObservedState& observed) { return true; }
+    virtual void PostObserve(TObservedState& observed, const TNextState& next) = 0;
+
     // random number generation storage
     std::random_device m_rd;
     std::seed_seq m_fullSeed;
@@ -88,8 +95,34 @@ public:
     std::unordered_map<TObservedState, TObservedProbabilities> m_probabilities;
 };
 
+class TextMarkovChain : public MarkovChain<std::string, std::string>
+{
+public:
 
-MarkovChain<std::string, std::string> g_markovChain;
+    virtual void PostObserve(std::string& observed, const std::string& next)
+    {
+        observed = next;
+    }
+};
+
+class TextMarkovChain2dOrder : public MarkovChain<std::array<std::string, 2>, std::string>
+{
+public:
+
+    virtual bool ShouldObserve(const std::array<std::string, 2>& observed)
+    {
+        return !observed[0].empty() && !observed[1].empty();
+    }
+
+    virtual void PostObserve(std::array<std::string, 2>& observed, const std::string& next)
+    {
+        observed[1] = observed[0];
+        observed[0] = next;
+    }
+};
+
+TextMarkovChain g_markovChain;
+//TextMarkovChain2dOrder g_markovChain2ndOrder;
 
 bool IsAlphaNumeric(char c)
 {
@@ -187,10 +220,7 @@ bool ProcessFile(const char* fileName)
     {
         GetWord(contents.data(), size, position, nextWord);
         if (!nextWord.empty())
-        {
-            g_markovChain.LearnObservation(lastWord, nextWord);
-            lastWord = nextWord;
-        }
+            g_markovChain.Observe(lastWord, nextWord);
     }
 
     return true;
