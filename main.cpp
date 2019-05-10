@@ -6,6 +6,28 @@
 #include <algorithm>
 #include <array>
 
+// array hasher
+namespace std
+{
+    template<typename T, size_t N>
+    struct hash<array<T, N> >
+    {
+        typedef array<T, N> argument_type;
+        typedef size_t result_type;
+
+        result_type operator()(const argument_type& a) const
+        {
+            hash<T> hasher;
+            result_type h = 0;
+            for (result_type i = 0; i < N; ++i)
+            {
+                h = h * 31 + hasher(a[i]);
+            }
+            return h;
+        }
+    };
+}
+
 template <typename TObservedState, typename TNextState>
 class MarkovChain
 {
@@ -57,18 +79,20 @@ public:
         return it->first;
     }
 
-    TNextState GetNextState(const TObservedState& observed)
+    TNextState GetNextState(TObservedState& observed)
     {
         // get the next state by choosing a weighted random next state.
         std::uniform_real_distribution<float> distFloat(0.0f, 1.0f);
-        TObservedProbabilities probabilities = m_probabilities[observed];
+        TObservedProbabilities& probabilities = m_probabilities[observed];
 
         float nextStateProbability = distFloat(m_rng);
         int nextStateIndex = 0;
         while (nextStateIndex < probabilities.size() - 1 && probabilities[nextStateIndex].cumulativeProbability < nextStateProbability)
             ++nextStateIndex;
 
-        return probabilities[nextStateIndex].observed;
+        TNextState nextState = probabilities[nextStateIndex].observed;
+        PostObserve(observed, nextState);
+        return nextState;
     }
 
     // virtual interface
@@ -122,7 +146,11 @@ public:
 };
 
 TextMarkovChain g_markovChain;
-//TextMarkovChain2dOrder g_markovChain2ndOrder;
+TextMarkovChain2dOrder g_markovChain2ndOrder;
+
+// TODO: generalize TextMarkovChain2dOrder and have g_markovChain use it for order 1! could also do order 0 for fun (for blog)
+// TODO: rename PostObserve() to something more appropriate
+// TODO: hook g_markovChain2ndOrder up
 
 bool IsAlphaNumeric(char c)
 {
@@ -269,7 +297,8 @@ bool GenerateStatsFile(const char* fileName)
     return true;
 }
 
-bool GenerateFile(const char* fileName, size_t wordCount)
+template <typename MARKOVCHAIN>
+bool GenerateFile(const char* fileName, size_t wordCount, MARKOVCHAIN& markovChain)
 {
     FILE* file = nullptr;
     fopen_s(&file, fileName, "w+t");
@@ -277,7 +306,7 @@ bool GenerateFile(const char* fileName, size_t wordCount)
         return false;
 
     // get the initial starting state
-    std::string word = g_markovChain.GetInitialState();
+    std::string word = markovChain.GetInitialState();
     std::string lastWord = word;
     word[0] = toupper(word[0]);
     fprintf(file, "%s", word.c_str());
@@ -286,8 +315,7 @@ bool GenerateFile(const char* fileName, size_t wordCount)
 
     for (size_t wordIndex = 0; wordIndex < wordCount; ++wordIndex)
     {
-        std::string nextWord = g_markovChain.GetNextState(lastWord);
-        lastWord = nextWord;
+        std::string nextWord = markovChain.GetNextState(lastWord);
 
         if (capitalizeFirstLetter)
         {
@@ -341,7 +369,7 @@ int main(int argc, char** argv)
     }
 
     // make output
-    if (!GenerateFile("out/generated.txt", 1000))
+    if (!GenerateFile("out/generated.txt", 1000, g_markovChain))
     {
         printf("Could not generate output file!\n");
         return 1;
