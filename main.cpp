@@ -28,7 +28,7 @@ namespace std
     };
 }
 
-template <typename TObservedState, typename TNextState>
+template <typename TType, size_t ORDER_N>
 class MarkovChain
 {
 public:
@@ -41,12 +41,51 @@ public:
 
     }
 
-    // learning stage
-    void Observe(TObservedState& observed, const TNextState& next)
+    typedef std::array<TType, ORDER_N> Observations;
+
+    typedef std::unordered_map<TType, size_t> TObservedCounts;
+
+    struct ObservedProbability
     {
-        if (ShouldObserve(observed))
-            m_counts[observed][next]++;
-        PostObserve(observed, next);
+        TType observed;
+        float cumulativeProbability;
+    };
+
+    typedef std::vector<ObservedProbability> TObservedProbabilities;
+
+    struct ObservationContext
+    {
+        ObservationContext()
+        {
+            std::fill(m_hasObservation.begin(), m_hasObservation.end(), false);
+        }
+
+        Observations              m_observations;
+        std::array<bool, ORDER_N> m_hasObservation;
+    };
+
+    ObservationContext GetObservationContext()
+    {
+        return ObservationContext();
+    }
+
+    // learning stage
+    void RecordObservation(ObservationContext& context, const TType& next)
+    {
+        // if this observation has a full set of data observed, record this observation
+        if (context.m_hasObservation[ORDER_N - 1])
+            m_counts[context.m_observations][next]++;
+
+        // move all observations down
+        for (size_t index = ORDER_N - 1; index > 0; --index)
+        {
+            context.m_observations[index] = context.m_observations[index - 1];
+            context.m_hasObservation[index] = context.m_hasObservation[index - 1];
+        }
+
+        // put in the new observation
+        context.m_observations[0] = next;
+        context.m_hasObservation[0] = true;
     }
 
     void FinalizeLearning()
@@ -69,7 +108,7 @@ public:
     }
 
     // data generation stage
-    TObservedState GetInitialState()
+    Observations GetInitialObservations()
     {
         // select a starting state entirely at random
         std::uniform_int_distribution<size_t> dist(0, m_probabilities.size());
@@ -79,25 +118,49 @@ public:
         return it->first;
     }
 
-    TNextState GetNextState(TObservedState& observed)
+    void GetNextObservations(Observations& observations)
     {
         // get the next state by choosing a weighted random next state.
         std::uniform_real_distribution<float> distFloat(0.0f, 1.0f);
-        TObservedProbabilities& probabilities = m_probabilities[observed];
+        TObservedProbabilities& probabilities = m_probabilities[observations];
+        if (probabilities.size() == 0)
+            return;
 
         float nextStateProbability = distFloat(m_rng);
         int nextStateIndex = 0;
         while (nextStateIndex < probabilities.size() - 1 && probabilities[nextStateIndex].cumulativeProbability < nextStateProbability)
             ++nextStateIndex;
 
-        TNextState nextState = probabilities[nextStateIndex].observed;
-        PostObserve(observed, nextState);
-        return nextState;
+        // move all observations down
+        for (size_t index = ORDER_N - 1; index > 0; --index)
+            observations[index] = observations[index - 1];
+
+        // put the new observation in
+        observations[0] = probabilities[nextStateIndex].observed;
     }
 
-    // virtual interface
-    virtual bool ShouldObserve(const TObservedState& observed) { return true; }
-    virtual void PostObserve(TObservedState& observed, const TNextState& next) = 0;
+    // file output
+    void fprintf(FILE* file, const Observations& observations)
+    {
+        for (int i = 0; i < ORDER_N; ++i)
+        {
+            if (i == 0)
+                ::fprintf(file, "%s", observations[i].c_str());
+            else
+                ::fprintf(file, " %s", observations[i].c_str());
+        }
+    }
+
+    void fprintf(FILE* file, const std::vector<ObservedProbability>& observations)
+    {
+        for (int i = 0; i < observations.size(); ++i)
+        {
+            if (i == 0)
+                ::fprintf(file, "%s", observations[i].c_str());
+            else
+                ::fprintf(file, " %s", observations[i].c_str());
+        }
+    }
 
     // random number generation storage
     std::random_device m_rd;
@@ -105,51 +168,13 @@ public:
     std::mt19937 m_rng;
 
     // data storage
-    typedef std::unordered_map<TObservedState, size_t> TObservedCounts;
-
-    struct ObservedProbability
-    {
-        TObservedState observed;
-        float cumulativeProbability;
-    };
-
-    typedef std::vector<ObservedProbability> TObservedProbabilities;
-
-    std::unordered_map<TObservedState, TObservedCounts> m_counts;
-    std::unordered_map<TObservedState, TObservedProbabilities> m_probabilities;
+    std::unordered_map<Observations, TObservedCounts> m_counts;
+    std::unordered_map<Observations, TObservedProbabilities> m_probabilities;
 };
 
-class TextMarkovChain : public MarkovChain<std::string, std::string>
-{
-public:
+MarkovChain<std::string, 2> g_markovChain;
+MarkovChain<std::string, 2> g_markovChain2ndOrder;
 
-    virtual void PostObserve(std::string& observed, const std::string& next)
-    {
-        observed = next;
-    }
-};
-
-class TextMarkovChain2dOrder : public MarkovChain<std::array<std::string, 2>, std::string>
-{
-public:
-
-    virtual bool ShouldObserve(const std::array<std::string, 2>& observed)
-    {
-        return !observed[0].empty() && !observed[1].empty();
-    }
-
-    virtual void PostObserve(std::array<std::string, 2>& observed, const std::string& next)
-    {
-        observed[1] = observed[0];
-        observed[0] = next;
-    }
-};
-
-TextMarkovChain g_markovChain;
-TextMarkovChain2dOrder g_markovChain2ndOrder;
-
-// TODO: generalize TextMarkovChain2dOrder and have g_markovChain use it for order 1! could also do order 0 for fun (for blog)
-// TODO: rename PostObserve() to something more appropriate
 // TODO: hook g_markovChain2ndOrder up
 
 bool IsAlphaNumeric(char c)
@@ -192,7 +217,7 @@ bool IsPunctuation(char c)
     return false;
 }
 
-void GetWord(unsigned char* contents, size_t size, size_t& position, std::string& word)
+bool GetWord(unsigned char* contents, size_t size, size_t& position, std::string& word)
 {
     // skip ignored characters to start
     while (position < size && !IsAlphaNumeric(contents[position]) && !IsPunctuation(contents[position]))
@@ -202,7 +227,7 @@ void GetWord(unsigned char* contents, size_t size, size_t& position, std::string
     if (position >= size)
     {
         word = "";
-        return;
+        return false;
     }
 
     // go until bad character, or end of data
@@ -223,6 +248,8 @@ void GetWord(unsigned char* contents, size_t size, size_t& position, std::string
 
     // make lowercase for consistency
     std::transform(word.begin(), word.end(), word.begin(), ::tolower);
+
+    return true;
 }
 
 bool ProcessFile(const char* fileName)
@@ -239,17 +266,15 @@ bool ProcessFile(const char* fileName)
     fread(contents.data(), 1, contents.size(), file);
     fclose(file);
 
+    // get an observation context
+    auto context = g_markovChain.GetObservationContext();
+
     // process the file
     size_t position = 0;
     size_t size = contents.size();
-    std::string nextWord, lastWord;
-    GetWord(contents.data(), size, position, lastWord);
-    while (position < size)
-    {
-        GetWord(contents.data(), size, position, nextWord);
-        if (!nextWord.empty())
-            g_markovChain.Observe(lastWord, nextWord);
-    }
+    std::string nextWord;
+    while(GetWord(contents.data(), size, position, nextWord))
+        g_markovChain.RecordObservation(context, nextWord);
 
     return true;
 }
@@ -262,19 +287,23 @@ bool GenerateStatsFile(const char* fileName)
         return false;
 
     // show the data we have
-    fprintf(file, "\n\nWord Counts:\n");
+    fprintf(file, "\n\nWord Counts:");
     for (auto& wordCounts : g_markovChain.m_counts)
     {
-        fprintf(file, "[+] %s\n", wordCounts.first.c_str());
+        fprintf(file, "\n[+] ");
+        g_markovChain.fprintf(file, wordCounts.first);
+        fprintf(file, "\n");
 
         for (auto& wordCount : wordCounts.second)
             fprintf(file, "[++] %s - %zu\n", wordCount.first.c_str(), wordCount.second);
     }
 
-    fprintf(file, "\n\nWord Probabilities:\n");
+    fprintf(file, "\n\nWord Probabilities:");
     for (auto& wordCounts : g_markovChain.m_probabilities)
     {
-        fprintf(file, "[-] %s\n", wordCounts.first.c_str());
+        fprintf(file, "\n[-] ");
+        g_markovChain.fprintf(file, wordCounts.first);
+        fprintf(file, "\n");
 
         float lastProbability = 0.0f;
         for (auto& wordCount : wordCounts.second)
@@ -306,8 +335,8 @@ bool GenerateFile(const char* fileName, size_t wordCount, MARKOVCHAIN& markovCha
         return false;
 
     // get the initial starting state
-    std::string word = markovChain.GetInitialState();
-    std::string lastWord = word;
+    auto observations = markovChain.GetInitialObservations();
+    std::string word = observations[0];
     word[0] = toupper(word[0]);
     fprintf(file, "%s", word.c_str());
 
@@ -315,8 +344,9 @@ bool GenerateFile(const char* fileName, size_t wordCount, MARKOVCHAIN& markovCha
 
     for (size_t wordIndex = 0; wordIndex < wordCount; ++wordIndex)
     {
-        std::string nextWord = markovChain.GetNextState(lastWord);
+        markovChain.GetNextObservations(observations);
 
+        std::string nextWord = observations[0];
         if (capitalizeFirstLetter)
         {
             nextWord[0] = toupper(nextWord[0]);
@@ -340,8 +370,8 @@ int main(int argc, char** argv)
 {
     std::vector<const char*> inputFiles =
     {
-        //"data/projbluenoise.txt",
-        //"data/psychreport.txt",
+        "data/projbluenoise.txt",
+        "data/psychreport.txt",
         "data/lastquestion.txt",
         "data/telltale.txt",
     };
@@ -382,8 +412,14 @@ int main(int argc, char** argv)
 
 TODO:
 
+
+? what to do when you encounter something without anything to transition to (probabilities size is zero for what to go to next).
+ ? we could avoid them by removing them from the data when finalizing. Maybe that's appropriate?
+
 * Nth order! just make the key string be the appending of the last two words maybe?
 * then write blog post.
+
+* put ellipses at the start and end of the generated file
 
 Next: try with images?
  * maybe just have a "N observed states = M possible outputs" general markov chain. Maybe try it with more than images? letters? audio? i dunno
