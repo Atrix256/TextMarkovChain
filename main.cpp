@@ -5,20 +5,91 @@
 #include <random>
 #include <algorithm>
 
-#define COUNTOF(X) (sizeof(X) / sizeof(X[0]))
-
-typedef std::unordered_map<std::string, size_t> TWordCounts;
-
-struct WordProbability
+template <typename TObservedState, typename TNextState>
+class MarkovChain
 {
-    std::string word;
-    float probability;
+public:
+
+    MarkovChain()
+        : m_rd("dev/random")
+        , m_fullSeed{ m_rd(), m_rd(), m_rd(), m_rd(), m_rd(), m_rd(), m_rd(), m_rd() }
+        , m_rng(m_fullSeed)
+    {
+
+    }
+
+    // learning stage
+    void LearnObservation(const TObservedState& observed, const TNextState& next)
+    {
+        m_counts[observed][next]++;
+    }
+
+    void FinalizeLearning()
+    {
+        // turn the sums into cumulative probabilities
+        for (auto observed : m_counts)
+        {
+            size_t sum = 0;
+            for (auto nextState : observed.second)
+                sum += nextState.second;
+
+            float probabilitySum = 0.0f;
+            for (auto nextState : observed.second)
+            {
+                float probability = float(nextState.second) / float(sum);
+                probabilitySum += probability;
+                m_probabilities[observed.first].push_back(ObservedProbability{ nextState.first, probabilitySum });
+            }
+        }
+    }
+
+    // data generation stage
+    TObservedState GetInitialState()
+    {
+        // select a starting state entirely at random
+        std::uniform_int_distribution<size_t> dist(0, m_probabilities.size());
+        size_t index = dist(m_rng);
+        auto it = m_probabilities.begin();
+        std::advance(it, index);
+        return it->first;
+    }
+
+    TNextState GetNextState(const TObservedState& observed)
+    {
+        // get the next state by choosing a weighted random next state.
+        std::uniform_real_distribution<float> distFloat(0.0f, 1.0f);
+        TObservedProbabilities probabilities = m_probabilities[observed];
+
+        float nextStateProbability = distFloat(m_rng);
+        int nextStateIndex = 0;
+        while (nextStateIndex < probabilities.size() - 1 && probabilities[nextStateIndex].cumulativeProbability < nextStateProbability)
+            ++nextStateIndex;
+
+        return probabilities[nextStateIndex].observed;
+    }
+
+    // random number generation storage
+    std::random_device m_rd;
+    std::seed_seq m_fullSeed;
+    std::mt19937 m_rng;
+
+    // data storage
+    typedef std::unordered_map<TObservedState, size_t> TObservedCounts;
+
+    struct ObservedProbability
+    {
+        TObservedState observed;
+        float cumulativeProbability;
+    };
+
+    typedef std::vector<ObservedProbability> TObservedProbabilities;
+
+    std::unordered_map<TObservedState, TObservedCounts> m_counts;
+    std::unordered_map<TObservedState, TObservedProbabilities> m_probabilities;
 };
 
-typedef std::vector<WordProbability> TWordProbabilities;
 
-std::unordered_map<std::string, TWordCounts> g_wordCounts;
-std::unordered_map<std::string, TWordProbabilities> g_wordProbabilities;
+MarkovChain<std::string, std::string> g_markovChain;
 
 bool IsAlphaNumeric(char c)
 {
@@ -117,30 +188,12 @@ bool ProcessFile(const char* fileName)
         GetWord(contents.data(), size, position, nextWord);
         if (!nextWord.empty())
         {
-            g_wordCounts[lastWord][nextWord]++;
+            g_markovChain.LearnObservation(lastWord, nextWord);
             lastWord = nextWord;
         }
     }
 
     return true;
-}
-
-void MakeProbabilities()
-{
-    for (auto firstWord : g_wordCounts)
-    {
-        size_t sum = 0;
-        for (auto nextWord : firstWord.second)
-            sum += nextWord.second;
-
-        float probabilitySum = 0.0f;
-        for (auto nextWord : firstWord.second)
-        {
-            float probability = float(nextWord.second) / float(sum);
-            probabilitySum += probability;
-            g_wordProbabilities[firstWord.first].push_back(WordProbability{ nextWord.first, probabilitySum });
-        }
-    }
 }
 
 bool GenerateStatsFile(const char* fileName)
@@ -152,7 +205,7 @@ bool GenerateStatsFile(const char* fileName)
 
     // show the data we have
     fprintf(file, "\n\nWord Counts:\n");
-    for (auto& wordCounts : g_wordCounts)
+    for (auto& wordCounts : g_markovChain.m_counts)
     {
         fprintf(file, "[+] %s\n", wordCounts.first.c_str());
 
@@ -161,15 +214,15 @@ bool GenerateStatsFile(const char* fileName)
     }
 
     fprintf(file, "\n\nWord Probabilities:\n");
-    for (auto& wordCounts : g_wordProbabilities)
+    for (auto& wordCounts : g_markovChain.m_probabilities)
     {
         fprintf(file, "[-] %s\n", wordCounts.first.c_str());
 
         float lastProbability = 0.0f;
         for (auto& wordCount : wordCounts.second)
         {
-            fprintf(file, "[--] %s - %i%%\n", wordCount.word.c_str(), int((wordCount.probability - lastProbability)*100.0f));
-            lastProbability = wordCount.probability;
+            fprintf(file, "[--] %s - %i%%\n", wordCount.observed.c_str(), int((wordCount.cumulativeProbability - lastProbability)*100.0f));
+            lastProbability = wordCount.cumulativeProbability;
         }
     }
 
@@ -188,41 +241,23 @@ bool GenerateStatsFile(const char* fileName)
 
 bool GenerateFile(const char* fileName, size_t wordCount)
 {
-    static std::random_device rd("dev/random");
-    static std::seed_seq fullSeed{ rd(), rd(), rd(), rd(), rd(), rd(), rd(), rd() };
-    static std::mt19937 rng(fullSeed);
-
     FILE* file = nullptr;
     fopen_s(&file, fileName, "w+t");
     if (!file)
         return false;
 
-    std::uniform_int_distribution<size_t> dist(0, g_wordProbabilities.size());
-    std::uniform_real_distribution<float> distFloat(0.0f, 1.0f);
-
-    size_t lastWordIndex = dist(rng);
-    auto it = g_wordProbabilities.begin();
-    std::advance(it, lastWordIndex);
-    std::string word = it->first;
+    // get the initial starting state
+    std::string word = g_markovChain.GetInitialState();
+    std::string lastWord = word;
     word[0] = toupper(word[0]);
     fprintf(file, "%s", word.c_str());
-    std::string lastWord = it->first;
 
     bool capitalizeFirstLetter = false;
 
     for (size_t wordIndex = 0; wordIndex < wordCount; ++wordIndex)
     {
-        TWordProbabilities probabilities = g_wordProbabilities[lastWord];
-        if (probabilities.size() == 0)  // edge case: the only time a word appears is at the end of the file!
-            break;
-
-        float nextWordProbability = distFloat(rng);
-
-        int nextWordIndex = 0;
-        while (nextWordIndex < probabilities.size() - 1 && probabilities[nextWordIndex].probability < nextWordProbability)
-            ++nextWordIndex;
-
-        std::string nextWord = probabilities[nextWordIndex].word;
+        std::string nextWord = g_markovChain.GetNextState(lastWord);
+        lastWord = nextWord;
 
         if (capitalizeFirstLetter)
         {
@@ -237,8 +272,6 @@ bool GenerateFile(const char* fileName, size_t wordCount)
 
         if (nextWord == ".")
             capitalizeFirstLetter = true;
-
-        lastWord = probabilities[nextWordIndex].word;
     }
 
     fclose(file);
@@ -247,7 +280,7 @@ bool GenerateFile(const char* fileName, size_t wordCount)
 
 int main(int argc, char** argv)
 {
-    const char* inputFiles[] =
+    std::vector<const char*> inputFiles =
     {
         //"data/projbluenoise.txt",
         //"data/psychreport.txt",
@@ -256,19 +289,19 @@ int main(int argc, char** argv)
     };
 
     // process input
-    for (size_t i = 0; i < COUNTOF(inputFiles); ++i)
+    for (const char* inputFile : inputFiles)
     {
-        printf("processing %s...\n", inputFiles[i]);
-        if (!ProcessFile(inputFiles[i]))
+        printf("processing %s...\n", inputFile);
+        if (!ProcessFile(inputFile))
         {
-            printf("could not open file %s!\n", inputFiles[i]);
+            printf("could not open file %s!\n", inputFile);
             return 1;
         }
     }
 
     // make probabilities
     printf("Calculating probabilities...\n");
-    MakeProbabilities();
+    g_markovChain.FinalizeLearning();
 
     // make statistics file
     if (!GenerateStatsFile("out/stats.txt"))
