@@ -172,10 +172,7 @@ public:
     std::unordered_map<Observations, TObservedProbabilities> m_probabilities;
 };
 
-MarkovChain<std::string, 2> g_markovChain;
-MarkovChain<std::string, 2> g_markovChain2ndOrder;
-
-// TODO: hook g_markovChain2ndOrder up
+MarkovChain<std::string, 1> g_markovChain;
 
 bool IsAlphaNumeric(char c)
 {
@@ -412,18 +409,13 @@ int main(int argc, char** argv)
 
 TODO:
 
-
-? what to do when you encounter something without anything to transition to (probabilities size is zero for what to go to next).
- ? we could avoid them by removing them from the data when finalizing. Maybe that's appropriate?
-
-* Nth order! just make the key string be the appending of the last two words maybe?
 * then write blog post.
-
-* put ellipses at the start and end of the generated file
 
 Next: try with images?
  * maybe just have a "N observed states = M possible outputs" general markov chain. Maybe try it with more than images? letters? audio? i dunno
 
 Note: all sorts of copies and ineficiencies in code. Runs fast enough for this usage case, and was fast to write, so good enough.
+Note: try 0th order (purely random selection of words), 2nd order, 3rd order, etc. Show how it limits options. Need more data i guess.
+Note: hitting situations where there is nothing to transition to next? actually i dont think this is an issue
 
 */
