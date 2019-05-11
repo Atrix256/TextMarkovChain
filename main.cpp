@@ -154,16 +154,18 @@ public:
 template <typename Observations>
 void fprintf(FILE* file, const Observations& observations)
 {
-    for (int i = 0; i < observations.size(); ++i)
+    bool first = true;
+    for (int i = int(observations.size()) - 1; i >= 0; --i)
     {
-        if (i == 0)
+        if (first)
             ::fprintf(file, "%s", observations[i].c_str());
         else
             ::fprintf(file, " %s", observations[i].c_str());
+        first = false;
     }
 }
 
-MarkovChain<std::string, 1> g_markovChain;
+MarkovChain<std::string, 2> g_markovChain;
 
 bool IsAlphaNumeric(char c)
 {
@@ -360,7 +362,7 @@ int main(int argc, char** argv)
     {
         //"data/projbluenoise.txt",
         //"data/psychreport.txt",
-        //"data/lastquestion.txt",
+        "data/lastquestion.txt",
         "data/telltale.txt",
     };
 
