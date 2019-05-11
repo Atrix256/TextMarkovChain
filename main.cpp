@@ -139,29 +139,6 @@ public:
         observations[0] = probabilities[nextStateIndex].observed;
     }
 
-    // file output
-    void fprintf(FILE* file, const Observations& observations)
-    {
-        for (int i = 0; i < ORDER_N; ++i)
-        {
-            if (i == 0)
-                ::fprintf(file, "%s", observations[i].c_str());
-            else
-                ::fprintf(file, " %s", observations[i].c_str());
-        }
-    }
-
-    void fprintf(FILE* file, const std::vector<ObservedProbability>& observations)
-    {
-        for (int i = 0; i < observations.size(); ++i)
-        {
-            if (i == 0)
-                ::fprintf(file, "%s", observations[i].c_str());
-            else
-                ::fprintf(file, " %s", observations[i].c_str());
-        }
-    }
-
     // random number generation storage
     std::random_device m_rd;
     std::seed_seq m_fullSeed;
@@ -171,6 +148,20 @@ public:
     std::unordered_map<Observations, TObservedCounts> m_counts;
     std::unordered_map<Observations, TObservedProbabilities> m_probabilities;
 };
+
+// file output. If you change what type the markov chain works with, you'll have to implement something that handles that type
+// like this, for being able to print out the stats file.
+template <typename Observations>
+void fprintf(FILE* file, const Observations& observations)
+{
+    for (int i = 0; i < observations.size(); ++i)
+    {
+        if (i == 0)
+            ::fprintf(file, "%s", observations[i].c_str());
+        else
+            ::fprintf(file, " %s", observations[i].c_str());
+    }
+}
 
 MarkovChain<std::string, 1> g_markovChain;
 
@@ -288,7 +279,7 @@ bool GenerateStatsFile(const char* fileName)
     for (auto& wordCounts : g_markovChain.m_counts)
     {
         fprintf(file, "\n[+] ");
-        g_markovChain.fprintf(file, wordCounts.first);
+        fprintf(file, wordCounts.first);
         fprintf(file, "\n");
 
         for (auto& wordCount : wordCounts.second)
@@ -299,7 +290,7 @@ bool GenerateStatsFile(const char* fileName)
     for (auto& wordCounts : g_markovChain.m_probabilities)
     {
         fprintf(file, "\n[-] ");
-        g_markovChain.fprintf(file, wordCounts.first);
+        fprintf(file, wordCounts.first);
         fprintf(file, "\n");
 
         float lastProbability = 0.0f;
@@ -367,9 +358,9 @@ int main(int argc, char** argv)
 {
     std::vector<const char*> inputFiles =
     {
-        "data/projbluenoise.txt",
-        "data/psychreport.txt",
-        "data/lastquestion.txt",
+        //"data/projbluenoise.txt",
+        //"data/psychreport.txt",
+        //"data/lastquestion.txt",
         "data/telltale.txt",
     };
 
@@ -406,10 +397,6 @@ int main(int argc, char** argv)
 }
 
 /*
-
-TODO:
-
-* then write blog post.
 
 Next: try with images?
  * maybe just have a "N observed states = M possible outputs" general markov chain. Maybe try it with more than images? letters? audio? i dunno
